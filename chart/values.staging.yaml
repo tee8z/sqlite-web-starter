@@ -1,0 +1,17 @@
+# Overlay on values.yaml. Set the registry and a published commit SHA before deployment.
+image:
+  repository: sqlite-web-starter
+  tag: unreleased
+
+# Create this Secret in the staging namespace with a dedicated replica prefix.
+replicaUrlSecret:
+  name: sqlite-web-starter-replica-staging
+
+# Replace this example with a hostname on your private network.
+internalIngressRoute:
+  enabled: true
+  domain: sqlite-web-starter.staging.internal.example.com
+
+# The CI workflow publishes linux/amd64 images.
+nodeSelector:
+  kubernetes.io/arch: amd64

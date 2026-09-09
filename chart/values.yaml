@@ -1,0 +1,78 @@
+# Shared defaults. Overlay values.staging.yaml or values.prod.yaml for deployment.
+# Without an overlay, use the locally built demo image.
+image:
+  repository: sqlite-web-starter
+  tag: local
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# The StatefulSet always runs one SQLite owner. Ingress only controls HTTP access.
+service:
+  port: 3000
+
+internalIngressRoute:
+  enabled: false
+  apiVersion: traefik.io/v1alpha1
+  ingressClass: traefik-internal
+  entryPoint: websecure
+  # Use a dedicated hostname: the HTML page and form use root-relative paths.
+  domain: ""
+  # Optional existing Traefik Middleware references, for example authentication.
+  middlewares: []
+  tls:
+    enabled: true
+    # Leave empty to use the controller's default certificate.
+    secretName: ""
+
+# Create this Secret separately; do not put object-store credentials in values.
+replicaUrlSecret:
+  name: sqlite-web-starter-replica
+  key: replica-url
+
+# Optional Secret with AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and (if needed)
+# AWS_SESSION_TOKEN. Leave empty when the pod uses a workload identity.
+credentialsSecretName: ""
+region: us-west-1
+
+# Use annotations to bind the generated account to your workload identity.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Existing account override. When set, this takes precedence and skips creation.
+serviceAccountName: ""
+
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+
+sqlite:
+  # Disk-backed emptyDir: the database, WAL, and Litestream metadata disappear
+  # when the pod is removed. Leave room for restore files and WAL growth.
+  sizeLimit: 2Gi
+
+shutdown:
+  # App drain + final replica sync + 20 seconds of process/Kubernetes headroom.
+  applicationTimeoutSeconds: 25
+  syncTimeoutSeconds: 45
+  syncIntervalSeconds: 1
+  terminationGracePeriodSeconds: 90
+
+# Allow up to ten minutes for restore before the startup probe restarts the pod.
+startupProbe:
+  periodSeconds: 5
+  failureThreshold: 120
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+    ephemeral-storage: 2Gi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+    # Includes the emptyDir plus writable container layers and logs.
+    ephemeral-storage: 3Gi

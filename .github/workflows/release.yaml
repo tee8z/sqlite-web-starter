@@ -1,0 +1,164 @@
+name: Release to Production
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'sqlite-web-starter' }}
+
+jobs:
+  retag_image:
+    name: Promote ECR image
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      source-sha: ${{ steps.release.outputs.source-sha }}
+      version: ${{ steps.release.outputs.version }}
+      repository: ${{ steps.repository.outputs.image }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate release
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo '::error::Use a stable version tag such as v0.1.0.'
+            exit 1
+          fi
+          if [[ ! "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
+            echo '::error::Set the AWS_ACCOUNT_ID repository variable before releasing.'
+            exit 1
+          fi
+          git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH"
+          echo "source-sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the tagged commit's CI image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ steps.release.outputs.source-sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: bash bin/ci/wait_for_ci.sh "$SOURCE_SHA" "$DEFAULT_BRANCH"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.AWS_ECR_ROLE_NAME || 'github-ecr-push' }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image repository
+        id: repository
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: echo "image=$REGISTRY/$ECR_REPOSITORY" >> "$GITHUB_OUTPUT"
+
+      - name: Retag existing commit image
+        env:
+          SOURCE_SHA: ${{ steps.release.outputs.source-sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.version }}
+        run: bash bin/ci/retag_image.sh "$ECR_REPOSITORY" "$SOURCE_SHA" "$RELEASE_TAG"
+
+  github_release:
+    name: Create GitHub release
+    needs: [retag_image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release notes
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.retag_image.outputs.version }}
+          generate_release_notes: true
+          make_latest: true
+
+  update_helm_values:
+    name: Open production values PR
+    needs: [retag_image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # App-created PRs trigger CI and retain verified bot commit signatures.
+      - name: Create release app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # Start from the current default branch so the PR contains only values.
+      - name: Checkout default branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Update production image
+        uses: mikefarah/yq@v4
+        env:
+          IMAGE_REPOSITORY: ${{ needs.retag_image.outputs.repository }}
+          RELEASE_TAG: ${{ needs.retag_image.outputs.version }}
+        with:
+          cmd: >-
+            yq -i '.image.repository = strenv(IMAGE_REPOSITORY) |
+            .image.tag = strenv(RELEASE_TAG)' chart/values.prod.yaml
+
+      - name: Create pull request
+        id: pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: releases/${{ needs.retag_image.outputs.version }}
+          base: ${{ github.event.repository.default_branch }}
+          commit-message: "chore(release): deploy ${{ needs.retag_image.outputs.version }} to production"
+          title: "chore(release): deploy ${{ needs.retag_image.outputs.version }} to production"
+          body: |
+            Promote `${{ needs.retag_image.outputs.repository }}:${{ needs.retag_image.outputs.version }}`.
+
+            The image was built from commit `${{ needs.retag_image.outputs.source-sha }}` and retagged in ECR.
+            Merge this PR to select the image for the production deployment that consumes `chart/values.prod.yaml`.
+          add-paths: chart/values.prod.yaml
+          delete-branch: true
+          sign-commits: true
+
+      - name: Enable auto-merge after required checks and approvals
+        if: >-
+          steps.pr.outputs.pull-request-number != '' &&
+          steps.pr.outputs.pull-request-operation != 'closed' &&
+          vars.RELEASE_AUTO_MERGE != 'false'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
+        run: gh pr merge "$PR_NUMBER" --auto --squash --match-head-commit "$PR_HEAD_SHA"

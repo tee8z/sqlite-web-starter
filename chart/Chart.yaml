@@ -1,0 +1,6 @@
+apiVersion: v2
+name: sqlite-web-starter
+description: One SQLite writer on ephemeral storage with Litestream restore and shutdown sync
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

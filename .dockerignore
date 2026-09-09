@@ -1,0 +1,33 @@
+target
+data
+replica
+.git
+
+# Local environment and deployment configuration.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+chart/values.local.yaml
+chart/values.*.local.yaml
+
+# Credentials and private keys.
+**/.aws
+**/.kube
+**/kubeconfig
+**/kubeconfig.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/id_rsa
+**/id_ecdsa
+**/id_ed25519
+
+# Local databases and their journal files, including custom SQLITE_PATH values.
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*

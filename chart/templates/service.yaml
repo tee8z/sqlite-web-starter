@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "sqlite-web-starter.labels" . | nindent 4 }}
+spec:
+  # Keep the governing headless Service stable for StatefulSet identity.
+  clusterIP: None
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+  selector:
+    {{- include "sqlite-web-starter.selectorLabels" . | nindent 4 }}

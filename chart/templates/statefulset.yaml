@@ -1,0 +1,114 @@
+{{- if le (int .Values.shutdown.terminationGracePeriodSeconds) (int (add .Values.shutdown.applicationTimeoutSeconds .Values.shutdown.syncTimeoutSeconds)) }}
+{{- fail "shutdown.terminationGracePeriodSeconds must exceed applicationTimeoutSeconds + syncTimeoutSeconds" }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "sqlite-web-starter.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Release.Name }}
+  # Exactly one owner. Scaling this creates independent, conflicting writers.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "sqlite-web-starter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/litestream-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with (omit .Values.podAnnotations "checksum/litestream-config") }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "sqlite-web-starter.selectorLabels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.shutdown.terminationGracePeriodSeconds }}
+      serviceAccountName: {{ include "sqlite-web-starter.serviceAccountName" . | quote }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+      containers:
+        - name: sqlite
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 3000
+          {{- with .Values.credentialsSecretName }}
+          envFrom:
+            - secretRef:
+                name: {{ . | quote }}
+          {{- end }}
+          env:
+            - name: SQLITE_PATH
+              value: /data/demo.sqlite
+            - name: SHUTDOWN_TIMEOUT_SECONDS
+              value: {{ .Values.shutdown.applicationTimeoutSeconds | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.region | quote }}
+            - name: LITESTREAM_REPLICA_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "replicaUrlSecret.name is required" .Values.replicaUrlSecret.name | quote }}
+                  key: {{ required "replicaUrlSecret.key is required" .Values.replicaUrlSecret.key | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            timeoutSeconds: 2
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            timeoutSeconds: 2
+            periodSeconds: 2
+            failureThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /healthy
+              port: http
+            timeoutSeconds: 2
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: /data
+            - name: litestream-config
+              mountPath: /etc/litestream.yml
+              subPath: litestream.yml
+              readOnly: true
+      volumes:
+        - name: sqlite-data
+          emptyDir:
+            sizeLimit: {{ .Values.sqlite.sizeLimit }}
+        - name: litestream-config
+          configMap:
+            name: {{ .Release.Name }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

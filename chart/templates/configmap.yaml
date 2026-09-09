@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "sqlite-web-starter.labels" . | nindent 4 }}
+data:
+  litestream.yml: |
+    # Supported by the pinned Litestream 0.5.16 image.
+    socket:
+      enabled: true
+      path: ${LITESTREAM_SOCKET}
+      permissions: 0600
+    shutdown-sync-timeout: {{ .Values.shutdown.syncTimeoutSeconds }}s
+    shutdown-sync-interval: {{ .Values.shutdown.syncIntervalSeconds }}s
+    dbs:
+      - path: /data/demo.sqlite
+        replica:
+          url: ${LITESTREAM_REPLICA_URL}
+          sync-interval: ${LITESTREAM_SYNC_INTERVAL}
+          # Optional S3 backup encryption at rest with AWS KMS (SSE-KMS).
+          # Set LITESTREAM_SSE_KMS_KEY_ID to your KMS key ARN through the
+          # Secret selected by credentialsSecretName, then uncomment:
+          # sse-kms-key-id: ${LITESTREAM_SSE_KMS_KEY_ID}
+          # Grant the backup and restore roles access to the KMS key.
+          # This does not encrypt the local SQLite file. Litestream 0.5.x
+          # does not support client-side age encryption.

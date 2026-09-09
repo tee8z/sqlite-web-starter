@@ -1,0 +1,17 @@
+socket:
+  enabled: true
+  path: ${LITESTREAM_SOCKET}
+  permissions: 0600
+shutdown-sync-timeout: 45s
+shutdown-sync-interval: 1s
+dbs:
+  - path: ${SQLITE_PATH}
+    replica:
+      url: ${LITESTREAM_REPLICA_URL}
+      sync-interval: ${LITESTREAM_SYNC_INTERVAL}
+      # Optional S3 backup encryption at rest with AWS KMS (SSE-KMS).
+      # Set LITESTREAM_SSE_KMS_KEY_ID to your KMS key ARN, then uncomment:
+      # sse-kms-key-id: ${LITESTREAM_SSE_KMS_KEY_ID}
+      # Grant the backup and restore roles access to the KMS key.
+      # This does not encrypt the local SQLite file. Litestream 0.5.x
+      # does not support client-side age encryption.

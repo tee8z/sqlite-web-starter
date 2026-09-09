@@ -1,0 +1,32 @@
+{{- if .Values.internalIngressRoute.enabled }}
+apiVersion: {{ .Values.internalIngressRoute.apiVersion }}
+kind: IngressRoute
+metadata:
+  name: {{ .Release.Name }}-internal
+  labels:
+    {{- include "sqlite-web-starter.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/ingress.class: {{ required "internalIngressRoute.ingressClass is required when ingress is enabled" .Values.internalIngressRoute.ingressClass | quote }}
+spec:
+  entryPoints:
+    - {{ required "internalIngressRoute.entryPoint is required when ingress is enabled" .Values.internalIngressRoute.entryPoint | quote }}
+  routes:
+    - kind: Rule
+      match: Host(`{{ required "internalIngressRoute.domain is required when ingress is enabled" .Values.internalIngressRoute.domain }}`)
+      {{- with .Values.internalIngressRoute.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      services:
+        - name: {{ .Release.Name }}-http
+          scheme: http
+          port: {{ .Values.service.port }}
+  {{- if .Values.internalIngressRoute.tls.enabled }}
+  tls:
+    {{- if .Values.internalIngressRoute.tls.secretName }}
+    secretName: {{ .Values.internalIngressRoute.tls.secretName | quote }}
+    {{- else }}
+    {}
+    {{- end }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,4 @@
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 12px 0; border-bottom: 1px solid #e5e8df; text-align: left; }
+th:last-child, td:last-child { text-align: right; }
+caption { text-align: left; color: #516058; margin-bottom: 12px; }

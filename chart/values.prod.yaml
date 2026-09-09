@@ -1,0 +1,18 @@
+# The release workflow fills these fields in its production values PR.
+# Configure the replica Secret and workload identity before the first deployment.
+image:
+  repository: sqlite-web-starter
+  tag: unreleased
+
+# Create this Secret in the production namespace with a dedicated replica prefix.
+replicaUrlSecret:
+  name: sqlite-web-starter-replica-prod
+
+# Replace this example with a hostname on your private network.
+internalIngressRoute:
+  enabled: true
+  domain: sqlite-web-starter.prod.internal.example.com
+
+# The CI workflow publishes linux/amd64 images.
+nodeSelector:
+  kubernetes.io/arch: amd64

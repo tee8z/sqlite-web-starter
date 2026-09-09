@@ -1,0 +1,30 @@
+.lab-settings { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.lab-settings span { padding: 4px 9px; border-radius: 5px; background: #edf0e8; color: #516058; font-size: .76rem; }
+#contention-status { min-height: 1.6em; font-size: .9rem; }
+.path-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+.path-card { min-width: 0; padding: 18px; border: 1px solid #d7ded3; border-top: 4px solid #275d43; border-radius: 10px; background: #f8faf4; }
+.path-card[data-path="direct"] { border-top-color: #a55731; background: #fff8f1; }
+.path-card h3 { margin: 0; font-size: 1rem; }
+.path-description { min-height: 2.8em; margin: 6px 0 16px; font-size: .76rem; }
+.path-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 0; }
+.path-stats dt { color: #516058; font-size: .65rem; white-space: nowrap; }
+.path-stats dd { margin: 2px 0 0; font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.path-duration { margin: 14px 0; font-size: .75rem; }
+.request-timings { display: grid; gap: 7px; margin: 0; padding: 14px 0 0; border-top: 1px solid #d7ded3; list-style: none; }
+.request-row { display: grid; grid-template-columns: 24px minmax(20px, 1fr) 110px; align-items: center; gap: 7px; min-height: 20px; font-variant-numeric: tabular-nums; }
+.request-number { color: #516058; font-size: .7rem; }
+.timing-track { position: relative; display: block; height: 11px; overflow: hidden; border-radius: 3px; background: #e3e7dc; }
+.timing-bar { position: absolute; top: 0; min-width: 3px; height: 100%; border-radius: 3px; background: #397952; }
+.request-outcome { font-size: .68rem; text-align: right; white-space: nowrap; }
+.request-busy .timing-bar { background: #ad572e; }
+.request-busy .request-outcome { color: #91431e; }
+.timing-note { margin: 12px 0; font-size: .78rem; }
+.lab-takeaway { margin: 16px 0; padding: 14px; border-left: 3px solid #275d43; background: #edf2e7; font-size: .9rem; }
+.lab-explanation { margin-top: 18px; font-size: .85rem; }
+.lab-explanation summary { cursor: pointer; color: #275d43; }
+.lab-explanation summary:focus-visible { outline: 3px solid #af7800; outline-offset: 4px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 700px) {
+  .path-comparison { grid-template-columns: 1fr; }
+  .path-description { min-height: 0; }
+}
