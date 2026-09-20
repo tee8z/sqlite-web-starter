@@ -3,7 +3,8 @@ use std::{sync::Arc, time::Duration};
 use axum::{
     Extension, Json, Router,
     extract::State,
-    http::StatusCode,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::Serialize;
@@ -34,24 +35,34 @@ struct Counter {
 
 pub type ApiError = (StatusCode, &'static str);
 
+/// A queued write commits in about a millisecond, so a full queue drains fast.
+/// One second gives a retry storm somewhere to wait without stalling callers.
+const RETRY_AFTER_SECONDS: &str = "1";
+
 pub fn read_error(error: sqlx::Error) -> ApiError {
     tracing::error!(%error, "read failed");
     (StatusCode::INTERNAL_SERVER_ERROR, "database read failed")
 }
 
-pub fn write_error(error: WriteError) -> ApiError {
+pub fn write_error(error: WriteError) -> Response {
     match error {
+        // Backpressure, not a failed server. A 5xx here would let proxy outlier
+        // detection eject the only replica over a queue that drains in
+        // milliseconds. Retry-After tells callers how long to back off.
         WriteError::Unavailable => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "write queue full or closed",
-        ),
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, RETRY_AFTER_SECONDS)],
+            "write queue full; retry after the given delay",
+        )
+            .into_response(),
         WriteError::OutcomeUnknown => (
             StatusCode::INTERNAL_SERVER_ERROR,
             "write outcome unknown; do not retry blindly",
-        ),
+        )
+            .into_response(),
         WriteError::Database(error) => {
             tracing::error!(%error, "write failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, "database write failed")
+            (StatusCode::INTERNAL_SERVER_ERROR, "database write failed").into_response()
         }
     }
 }
@@ -64,7 +75,7 @@ async fn read_counter(State(database): State<Database>) -> Result<Json<Counter>,
         .map_err(read_error)
 }
 
-async fn increment_counter(State(database): State<Database>) -> Result<Json<Counter>, ApiError> {
+async fn increment_counter(State(database): State<Database>) -> Result<Json<Counter>, Response> {
     database
         .increment()
         .await

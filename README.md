@@ -34,7 +34,8 @@ The shared `mpsc` queue lets many handlers feed one writer, serializing writes. 
 Reads bypass the channels through a SQLx pool with `read_only` and `query_only` enabled.
 Write-ahead log (WAL) mode allows reads alongside writes to the same database.
 
-The queue holds 64 pending commands; full or closed queues return HTTP 503.
+The queue holds 64 pending commands; full or closed queues return HTTP 429 with a `Retry-After` header.
+A full queue is backpressure that clears in milliseconds, so it avoids 5xx codes that proxy outlier detection would count against the single replica.
 Accepted writes still run if callers disconnect. A missing reply means an unknown outcome; blind retries can duplicate writes.
 
 **In the container**, startup restores a missing database, applies migrations, and confirms an initial replica sync before serving HTTP.

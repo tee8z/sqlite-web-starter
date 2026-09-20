@@ -1,7 +1,7 @@
 use axum::{
     extract::State,
     http::header,
-    response::{IntoResponse, Redirect},
+    response::{IntoResponse, Redirect, Response},
 };
 use maud::html;
 
@@ -26,7 +26,7 @@ pub(super) async fn index(State(database): State<Database>) -> Result<impl IntoR
     Ok(([(header::CACHE_CONTROL, "no-cache")], page))
 }
 
-pub(super) async fn increment(State(database): State<Database>) -> Result<Redirect, ApiError> {
+pub(super) async fn increment(State(database): State<Database>) -> Result<Redirect, Response> {
     database.increment().await.map_err(write_error)?;
     Ok(Redirect::to("/"))
 }

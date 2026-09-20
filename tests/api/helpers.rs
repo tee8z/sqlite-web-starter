@@ -38,6 +38,27 @@ impl TestApp {
         }
     }
 
+    /// Builds an app whose writer is dropped before it ever runs, so the
+    /// command channel is closed and every write fails admission. This reaches
+    /// `WriteError::Unavailable` deterministically, without racing a full queue.
+    pub async fn spawn_without_writer() -> Self {
+        let directory = tempfile::tempdir().expect("create test directory");
+        let (database, writer) = Database::open(&directory.path().join("test.sqlite"), 64)
+            .await
+            .expect("initialize test database");
+        // Dropping the writer closes the command channel, so writes fail
+        // admission. The read pool stays open through the Database handle.
+        drop(writer);
+
+        Self {
+            router: routes::router(database.clone()),
+            database,
+            shutdown: CancellationToken::new(),
+            writer: None,
+            _directory: directory,
+        }
+    }
+
     pub async fn request(&self, method: Method, uri: &str) -> Response {
         let request = Request::builder()
             .method(method)
@@ -53,8 +74,11 @@ impl TestApp {
     pub async fn shutdown(mut self) {
         self.database.stop_readiness();
         self.shutdown.cancel();
+        let Some(writer) = self.writer.as_mut() else {
+            return;
+        };
         // Keep the handle in self until completion so Drop also covers timeouts.
-        tokio::time::timeout(Duration::from_secs(3), self.writer.as_mut().unwrap())
+        tokio::time::timeout(Duration::from_secs(3), writer)
             .await
             .expect("database shutdown timed out")
             .expect("database writer panicked")

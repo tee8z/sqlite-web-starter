@@ -176,10 +176,17 @@ impl Writer {
         let result = increment_connection(&mut self.connection, self.transaction_hold).await;
         match result {
             Ok(value) => {
-                let _ = command.reply.send(Ok(value));
+                // A failed reply means the caller is gone and saw OutcomeUnknown.
+                // This is the only place that knows the write actually landed,
+                // so record it rather than dropping the outcome on the floor.
+                if command.reply.send(Ok(value)).is_err() {
+                    tracing::warn!(value, "committed a write whose caller had gone");
+                }
             }
             Err(error) => {
-                let _ = command.reply.send(Err(error.to_string()));
+                if command.reply.send(Err(error.to_string())).is_err() {
+                    tracing::warn!(%error, "write failed and the caller had gone");
+                }
                 return Err(error.into());
             }
         }

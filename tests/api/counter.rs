@@ -17,3 +17,30 @@ async fn an_acknowledged_increment_is_visible_to_the_next_read() {
 
     app.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_write_that_fails_admission_is_throttled_rather_than_reported_unavailable() {
+    let app = TestApp::spawn_without_writer().await;
+
+    // Nothing ran, so the caller may retry. A 5xx here would let proxy outlier
+    // detection eject the sole replica over transient backpressure.
+    for uri in ["/counter", "/increment"] {
+        let response = app.request(Method::POST, uri).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "{uri} should throttle a rejected write"
+        );
+        assert_eq!(
+            response.headers()[header::RETRY_AFTER],
+            "1",
+            "{uri} must tell the caller how long to wait"
+        );
+    }
+
+    // Reads do not depend on write admission and stay available.
+    let response = app.request(Method::GET, "/counter").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    app.shutdown().await;
+}
