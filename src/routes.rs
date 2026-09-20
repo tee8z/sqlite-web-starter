@@ -46,9 +46,9 @@ pub fn read_error(error: sqlx::Error) -> ApiError {
 
 pub fn write_error(error: WriteError) -> Response {
     match error {
-        // Backpressure, not a failed server. A 5xx here would let proxy outlier
-        // detection eject the only replica over a queue that drains in
-        // milliseconds. Retry-After tells callers how long to back off.
+        // Backpressure, not a failed server. A 5xx burns error budget, invites
+        // blanket client retries, and lets mesh outlier detection eject the
+        // only replica. Retry-After tells callers how long to back off.
         WriteError::Unavailable => (
             StatusCode::TOO_MANY_REQUESTS,
             [(header::RETRY_AFTER, RETRY_AFTER_SECONDS)],
