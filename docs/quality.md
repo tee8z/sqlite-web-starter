@@ -26,8 +26,10 @@ for configuration, deployment, and durability limits.
 - Keep connections, SQL, and write commands in [database.rs](../src/database.rs).
   HTTP handlers use `Database` operations without access to its connections.
 - Keep HTTP routing and error mapping in [routes.rs](../src/routes.rs).
-- Keep Maud page composition in [dashboard/pages.rs](../src/dashboard/pages.rs)
+- Keep page handlers and Maud page composition in [dashboard/pages.rs](../src/dashboard/pages.rs)
   and the shared HTML shell in [dashboard/layouts.rs](../src/dashboard/layouts.rs).
+- Render HTML on the server and let htmx request and swap it. Add a script only
+  for what the server cannot render, and enable it again after htmx swaps.
 - Give each component its own folder under
   [dashboard/components/](../src/dashboard/components/), with `mod.rs` beside its JavaScript and CSS files. Use
   [dashboard/styles.css](../src/dashboard/styles.css) for shared page styles.
@@ -84,8 +86,10 @@ for configuration, deployment, and durability limits.
   real waits with timeouts and clean up spawned tasks and temporary resources.
 - Keep tests independent of developer databases and cloud accounts. Use the
   container smoke test for packaged assets, shutdown, and restoration.
-- Keep the counter form usable without JavaScript. Test asset URLs, served bytes,
+- Keep every form and link usable without JavaScript. Test asset URLs, served bytes,
   and cache headers when changing the frontend build or delivery path.
+- Test a component's markup beside it, including the htmx attributes it depends on.
+  Test both replies of a page URL: the document and the fragment.
 - Add tests that prove behavior or reproduce failures. Avoid tests that only
   exercise lines and abstractions added solely for mocking.
 - Document invariants and surprising decisions. Keep one maintained explanation

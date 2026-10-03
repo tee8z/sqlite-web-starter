@@ -29,13 +29,24 @@ pub struct Database {
 }
 
 pub struct InventoryItem {
+    pub id: i64,
     pub name: String,
     pub quantity: i64,
 }
 
-struct Command {
-    reply: oneshot::Sender<Result<i64, String>>,
+/// One write for the writer task, with the channel that carries its result back.
+enum Command {
+    Increment {
+        reply: Reply<i64>,
+    },
+    SetQuantity {
+        id: i64,
+        quantity: i64,
+        reply: Reply<bool>,
+    },
 }
+
+type Reply<T> = oneshot::Sender<Result<T, String>>;
 
 pub enum WriteError {
     Unavailable,
@@ -102,22 +113,37 @@ impl Database {
     }
 
     pub async fn inventory(&self) -> Result<Vec<InventoryItem>, sqlx::Error> {
-        let rows =
-            sqlx::query_as::<_, (String, i64)>("SELECT name, quantity FROM inventory ORDER BY id")
-                .fetch_all(&self.readers)
-                .await?;
+        let rows = sqlx::query_as::<_, (i64, String, i64)>(
+            "SELECT id, name, quantity FROM inventory ORDER BY id",
+        )
+        .fetch_all(&self.readers)
+        .await?;
         Ok(rows
             .into_iter()
-            .map(|(name, quantity)| InventoryItem { name, quantity })
+            .map(|(id, name, quantity)| InventoryItem { id, name, quantity })
             .collect())
     }
 
     pub async fn increment(&self) -> Result<i64, WriteError> {
+        self.write(|reply| Command::Increment { reply }).await
+    }
+
+    /// Sets one item's quantity. `false` means no item has that id.
+    pub async fn set_quantity(&self, id: i64, quantity: i64) -> Result<bool, WriteError> {
+        self.write(|reply| Command::SetQuantity {
+            id,
+            quantity,
+            reply,
+        })
+        .await
+    }
+
+    async fn write<T>(&self, command: impl FnOnce(Reply<T>) -> Command) -> Result<T, WriteError> {
         let (reply, response) = oneshot::channel();
         // Full/closed means rejected before admission. A lost reply after this
         // point means an unknown outcome: the accepted write still executes.
         self.commands
-            .try_send(Command { reply })
+            .try_send(command(reply))
             .map_err(|_| WriteError::Unavailable)?;
         response
             .await
@@ -173,24 +199,41 @@ impl Writer {
     }
 
     async fn execute(&mut self, command: Command) -> Result<()> {
-        let result = increment_connection(&mut self.connection, self.transaction_hold).await;
-        match result {
-            Ok(value) => {
-                // A failed reply means the caller is gone and saw OutcomeUnknown.
-                // This is the only place that knows the write actually landed,
-                // so record it rather than dropping the outcome on the floor.
-                if command.reply.send(Ok(value)).is_err() {
-                    tracing::warn!(value, "committed a write whose caller had gone");
-                }
+        match command {
+            Command::Increment { reply } => {
+                let result =
+                    increment_connection(&mut self.connection, self.transaction_hold).await;
+                respond(reply, result)
             }
-            Err(error) => {
-                if command.reply.send(Err(error.to_string())).is_err() {
-                    tracing::warn!(%error, "write failed and the caller had gone");
-                }
-                return Err(error.into());
+            Command::SetQuantity {
+                id,
+                quantity,
+                reply,
+            } => {
+                let result = set_quantity_connection(&mut self.connection, id, quantity).await;
+                respond(reply, result)
             }
         }
-        Ok(())
+    }
+}
+
+fn respond<T: std::fmt::Debug>(reply: Reply<T>, result: Result<T, sqlx::Error>) -> Result<()> {
+    match result {
+        Ok(value) => {
+            // A failed reply means the caller is gone and saw OutcomeUnknown.
+            // This is the only place that knows the write actually landed,
+            // so record it rather than dropping the outcome on the floor.
+            if let Err(Ok(value)) = reply.send(Ok(value)) {
+                tracing::warn!(?value, "committed a write whose caller had gone");
+            }
+            Ok(())
+        }
+        Err(error) => {
+            if reply.send(Err(error.to_string())).is_err() {
+                tracing::warn!(%error, "write failed and the caller had gone");
+            }
+            Err(error.into())
+        }
     }
 }
 
@@ -209,6 +252,19 @@ async fn increment_connection(
     }
     transaction.commit().await?;
     Ok(value)
+}
+
+async fn set_quantity_connection(
+    connection: &mut SqliteConnection,
+    id: i64,
+    quantity: i64,
+) -> Result<bool, sqlx::Error> {
+    let updated = sqlx::query("UPDATE inventory SET quantity = ? WHERE id = ?")
+        .bind(quantity)
+        .bind(id)
+        .execute(connection)
+        .await?;
+    Ok(updated.rows_affected() == 1)
 }
 
 #[cfg(test)]

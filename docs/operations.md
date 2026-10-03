@@ -33,11 +33,12 @@ The barrier establishes Litestream database initialization before serving writes
 Add numbered SQL files to [migrations](../migrations). Keep applied files unchanged so SQLx can validate their checksums.
 
 Edit each component's browser assets beside its `mod.rs` in its own [src/dashboard/components/](../src/dashboard/components/) folder.
-For example, [counter/](../src/dashboard/components/counter/) contains `mod.rs`, `counter.js`, and `counter.css`.
+For example, [contention/](../src/dashboard/components/contention/) contains `mod.rs`, `contention.js`, and `contention.css`.
 Use [styles.css](../src/dashboard/styles.css) for shared page styles, [pages.rs](../src/dashboard/pages.rs) for page composition, and [layouts.rs](../src/dashboard/layouts.rs) for the HTML shell.
 [build.rs](../build.rs) uses [Lightning CSS](https://docs.rs/lightningcss/latest/lightningcss/stylesheet/struct.StyleSheet.html) and [minify-js](https://docs.rs/minify-js/0.6.0/minify_js/) during normal Cargo builds.
 It discovers `.css` and `.js` files recursively under `src/dashboard/`, so new sibling assets need no central registration.
 The CSS bundle starts with `styles.css`; remaining CSS files and all JavaScript files follow sorted path order.
+htmx and Bulma are embedded unmodified from [vendor/](../vendor/); each folder's README records the file's source and checksum. The page loads Bulma before the site's styles and htmx before the site's script.
 Adding or editing an asset triggers a rebuild. Cargo writes minified bundles and a generated Rust manifest into `OUT_DIR`; the executable embeds those bytes.
 The same pipeline runs for development and release builds, without Node.js, npm, or a separate frontend command.
 
@@ -45,15 +46,20 @@ Keep each JavaScript file inside a standalone immediately invoked function expre
 The build inserts separators between JavaScript files; the page loads their bundle as a classic deferred script.
 The build does not resolve JavaScript modules or CSS imports. Add build and route support before introducing imports, fonts, images, or other static assets.
 
-Each `/assets/site.<sha256>.css` or `.js` URL hashes the minified bytes served by [assets.rs](../src/dashboard/assets.rs).
+Each `/assets/<name>.<sha256>.css` or `.js` URL hashes the bytes served by [assets.rs](../src/dashboard/assets.rs), which sends the gzipped copy to browsers that accept it.
 The asset responses allow immutable caching for one year. HTML uses `Cache-Control: no-cache` to select the current asset URLs after deployment.
-Unknown asset hashes return HTTP 404. The executable serves only the embedded minified bundles.
-The [Dockerfile](../Dockerfile) copies dashboard sources with `src/`; no separate frontend directory is required.
+Unknown asset hashes return HTTP 404. The executable serves only the embedded files.
+The [Dockerfile](../Dockerfile) copies dashboard sources with `src/` and the libraries with `vendor/`; no separate frontend directory is required.
 The final container needs no frontend tools or asset directory at runtime.
 
-The counter script submits one request at a time and displays the returned value.
-On an uncertain response, it asks the user to reload before retrying; it never retries writes automatically.
-The normal `/increment` form remains available when JavaScript is disabled.
+Page URLs return a whole document, or only its content when htmx asks (`HX-Request`); these responses send `Vary` so caches keep the two apart.
+A history restore (`HX-History-Restore-Request`) gets the whole document.
+htmx 4 swaps error replies in like any other, so a failed form answers with HTML: the form and its errors with HTTP 422, or the API's status and `Retry-After` for a failed write.
+htmx 4 attributes are not inherited; put `hx-target` and `hx-swap` on the element that makes the request.
+
+The counter and stock forms disable their button until the reply, so each sends one request at a time.
+On an uncertain response, they ask the user to reload before retrying; nothing retries writes automatically.
+The normal `/increment` and `/inventory` forms remain available when JavaScript is disabled.
 
 ## Deploy with Helm
 

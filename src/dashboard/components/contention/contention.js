@@ -1,9 +1,8 @@
 // One request asks the server to launch concurrent write calls on isolated databases.
+// The chart is drawn here, so the server renders the lab disabled and this script
+// enables it wherever it appears: on the first load and after htmx swaps a page in.
 (() => {
-  const button = document.getElementById("run-contention");
-  const status = document.getElementById("contention-status");
-  const results = document.getElementById("contention-results");
-  if (!button || !status || !results || !window.fetch) return;
+  if (!window.fetch) return;
 
   const elapsed = (milliseconds) => milliseconds < 1 ? "<1" : String(Math.round(milliseconds));
   const isTime = (value) => Number.isFinite(value) && value >= 0;
@@ -64,10 +63,20 @@
     });
   }
 
-  button.disabled = false;
-  status.textContent = "Compare both paths using fresh counters. Your saved counter stays unchanged.";
-  button.addEventListener("click", async () => {
-    if (button.disabled) return;
+  function enable() {
+    const button = document.getElementById("run-contention");
+    const status = document.getElementById("contention-status");
+    // Only a lab the server just rendered: an enabled one already has its
+    // listener, and a busy one is disabled because it is running.
+    if (!button || !status || !button.disabled || button.hasAttribute("aria-busy")) return;
+    button.disabled = false;
+    status.textContent = "Compare both paths using fresh counters. Your saved counter stays unchanged.";
+    button.addEventListener("click", () => run(button, status));
+  }
+
+  async function run(button, status) {
+    const results = document.getElementById("contention-results");
+    if (button.disabled || !results) return;
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     results.hidden = true;
@@ -90,6 +99,8 @@
           !validPath(result.direct, result.writers) || !validPath(result.queued, result.writers)) {
         throw new Error("Invalid comparison response.");
       }
+      // The visitor opened another page while the comparison ran.
+      if (!results.isConnected) return;
       const requests = result.direct.requests.concat(result.queued.requests);
       const scale = Math.max(1, ...requests.map((request) => request.started_ms + request.elapsed_ms));
       renderPath("direct", result.direct, result.writers, scale);
@@ -112,5 +123,8 @@
       button.disabled = false;
       button.removeAttribute("aria-busy");
     }
-  });
+  }
+
+  enable();
+  document.addEventListener("htmx:after:swap", enable);
 })();

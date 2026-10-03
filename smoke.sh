@@ -78,15 +78,21 @@ check_counter() {
 }
 
 check_page() {
-    local expected=$1 page=$2 item
+    local expected=$1 page=$2
     local pattern="id=\"counter-value\"[^>]*>[[:space:]]*$expected[[:space:]]*<"
     [[ $page =~ $pattern ]] || fail "page did not render counter $expected: $page"
+    [[ $page == *'<form method="post" action="/increment"'* ]] || fail "page is missing the increment form"
+    [[ $page == *'>Increment counter</button>'* ]] || fail "page is missing the increment button"
+}
+
+# The quantities expected for Notebooks, Pencils, and Mugs, in a page or a fragment.
+check_inventory() {
+    local page=$1 item
+    shift
     [[ $page == *'id="sample-data"'* ]] || fail "page is missing the inventory table"
-    for item in '<td>Notebooks</td><td>12</td>' '<td>Pencils</td><td>48</td>' '<td>Mugs</td><td>6</td>'; do
+    for item in "<td>Notebooks</td><td>$1</td>" "<td>Pencils</td><td>$2</td>" "<td>Mugs</td><td>$3</td>"; do
         [[ $page == *"$item"* ]] || fail "page is missing inventory row: $item"
     done
-    [[ $page == *'<form method="post" action="/increment">'* ]] || fail "page is missing the increment form"
-    [[ $page == *'>Increment counter</button>'* ]] || fail "page is missing the increment button"
 }
 
 check_asset() {
@@ -110,15 +116,17 @@ check_asset() {
 }
 
 check_assets() {
-    local page=$1 css_url js_url
-    local css_pattern='href="(/assets/site\.[a-f0-9]{64}\.css)"'
-    local js_pattern='src="(/assets/site\.[a-f0-9]{64}\.js)"'
-    [[ $page =~ $css_pattern ]] || fail "page is missing a hashed stylesheet URL"
-    css_url=${BASH_REMATCH[1]}
-    [[ $page =~ $js_pattern ]] || fail "page is missing a hashed JavaScript URL"
-    js_url=${BASH_REMATCH[1]}
-    check_asset "$css_url" 'text/css; charset=utf-8'
-    check_asset "$js_url" 'text/javascript; charset=utf-8'
+    local page=$1 stem pattern
+    for stem in bulma site; do
+        pattern="href=\"(/assets/$stem\.[a-f0-9]{64}\.css)\""
+        [[ $page =~ $pattern ]] || fail "page is missing a hashed $stem stylesheet URL"
+        check_asset "${BASH_REMATCH[1]}" 'text/css; charset=utf-8'
+    done
+    for stem in htmx site; do
+        pattern="src=\"(/assets/$stem\.[a-f0-9]{64}\.js)\""
+        [[ $page =~ $pattern ]] || fail "page is missing a hashed $stem JavaScript URL"
+        check_asset "${BASH_REMATCH[1]}" 'text/javascript; charset=utf-8'
+    done
 }
 
 prepare_volume() {
@@ -177,6 +185,12 @@ check_page 1 "$page"
 check_assets "$page"
 # curl follows the 303 using GET when POST is selected with --data.
 check_page 2 "$(request --location --data '' "$base/increment")"
+check_inventory "$(request "$base/inventory")" 12 48 6
+check_inventory "$(request --location --data 'item=2&quantity=30' "$base/inventory")" 12 30 6
+# htmx gets the section alone, without a redirect or the document around it.
+fragment=$(request --header 'HX-Request: true' --data 'item=3&quantity=0' "$base/inventory")
+[[ $fragment == '<section id="inventory"'* ]] || fail "htmx did not get the inventory fragment: $fragment"
+check_inventory "$fragment" 12 30 0
 
 # Keep eight requests in flight per batch, and verify every committed reply is unique.
 for batch in 0 1 2 3; do
@@ -214,8 +228,9 @@ stop "$owner"
 start restored "$replica"
 check_counter "$expected"
 check_page "$expected" "$(request "$base/")"
+check_inventory "$(request "$base/inventory")" 12 30 0
 check_page "$((expected + 1))" "$(request --location --data '' "$base/increment")"
 check_counter "$((expected + 1))"
 check_page "$((expected + 1))" "$(request "$base/")"
 stop "$name"
-printf 'PASS: rapid shutdown, embedded CSS/JS, HTML/form/API writes, and deterministic final-sync restore of %s commits\n' "$expected"
+printf 'PASS: rapid shutdown, embedded CSS/JS, HTML/form/htmx/API writes, and deterministic final-sync restore of %s commits\n' "$expected"
