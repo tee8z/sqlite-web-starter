@@ -4,6 +4,7 @@ FROM rust:1.97.1-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY migrations ./migrations
+COPY vendor ./vendor
 COPY src ./src
 RUN cargo build --locked --release
 

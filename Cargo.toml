@@ -18,9 +18,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+flate2 = "1"
 tower = { version = "0.5", features = ["util"] }
 
 [build-dependencies]
+flate2 = "1"
 lightningcss = { version = "=1.0.0-alpha.72", default-features = false }
 minify-js = "0.6"
 sha2 = "0.10"

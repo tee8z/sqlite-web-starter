@@ -144,7 +144,12 @@ async fn shutdown_drains_admitted_writes_even_when_a_reply_is_dropped() {
     let mut responses = Vec::new();
     for _ in 0..4 {
         let (reply, response) = oneshot::channel();
-        assert!(database.commands.try_send(Command { reply }).is_ok());
+        assert!(
+            database
+                .commands
+                .try_send(Command::Increment { reply })
+                .is_ok()
+        );
         responses.push(response);
     }
     assert!(matches!(
@@ -163,4 +168,23 @@ async fn shutdown_drains_admitted_writes_even_when_a_reply_is_dropped() {
     let shutdown = CancellationToken::new();
     shutdown.cancel();
     writer.run(shutdown).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_quantity_is_committed_before_reply_and_an_unknown_item_changes_nothing() {
+    let directory = tempfile::tempdir().unwrap();
+    let (database, writer) = Database::open(&directory.path().join("demo.sqlite"), 8)
+        .await
+        .unwrap();
+    let shutdown = CancellationToken::new();
+    let task = tokio::spawn(writer.run(shutdown.clone()));
+
+    assert!(database.set_quantity(2, 30).await.ok().unwrap());
+    assert!(!database.set_quantity(99, 30).await.ok().unwrap());
+
+    let items = database.inventory().await.unwrap();
+    let quantities: Vec<_> = items.iter().map(|item| (item.id, item.quantity)).collect();
+    assert_eq!(quantities, [(1, 12), (2, 30), (3, 6)]);
+    shutdown.cancel();
+    task.await.unwrap().unwrap();
 }

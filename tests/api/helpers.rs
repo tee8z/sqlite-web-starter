@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::{
     Router,
     body::{Body, to_bytes},
-    http::{Method, Request},
+    http::{Method, Request, header, request},
     response::Response,
 };
 use sqlite_web_starter::{database::Database, routes};
@@ -60,11 +60,42 @@ impl TestApp {
     }
 
     pub async fn request(&self, method: Method, uri: &str) -> Response {
-        let request = Request::builder()
-            .method(method)
-            .uri(uri)
-            .body(Body::empty())
-            .expect("build test request");
+        self.send(Request::builder().method(method).uri(uri), None)
+            .await
+    }
+
+    /// A request as htmx sends it, asking for the HTML to swap in.
+    pub async fn htmx(&self, method: Method, uri: &str) -> Response {
+        self.send(htmx(Request::builder().method(method).uri(uri)), None)
+            .await
+    }
+
+    /// A form a browser posts without JavaScript.
+    pub async fn form(&self, uri: &str, fields: &str) -> Response {
+        self.send(
+            Request::builder().method(Method::POST).uri(uri),
+            Some(fields),
+        )
+        .await
+    }
+
+    /// The same form, posted by htmx.
+    pub async fn htmx_form(&self, uri: &str, fields: &str) -> Response {
+        self.send(
+            htmx(Request::builder().method(Method::POST).uri(uri)),
+            Some(fields),
+        )
+        .await
+    }
+
+    pub async fn send(&self, request: request::Builder, form: Option<&str>) -> Response {
+        let request = match form {
+            Some(fields) => request
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(fields.to_owned())),
+            None => request.body(Body::empty()),
+        }
+        .expect("build test request");
         tokio::time::timeout(Duration::from_secs(3), self.router.clone().oneshot(request))
             .await
             .expect("request timed out")
@@ -95,6 +126,10 @@ impl Drop for TestApp {
             writer.abort();
         }
     }
+}
+
+pub fn htmx(request: request::Builder) -> request::Builder {
+    request.header("HX-Request", "true")
 }
 
 pub async fn body_text(response: Response) -> String {

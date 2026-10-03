@@ -4,8 +4,8 @@ This foundational Rust example uses ephemeral pod storage with a durable replica
 Litestream restores SQLite when a replacement pod starts, so the chart needs no persistent volume or PersistentVolumeClaim (PVC).
 One StatefulSet replica owns the database. Staging and production examples include internal HTTP routing for the HTML page.
 
-Axum and Maud serve a counter and inventory backed by SQLite.
-For normal counter requests, HTTP handlers use a cloneable `Database` handle; only the writer owns a writable connection.
+Axum and Maud serve a counter and inventory backed by SQLite; [htmx](https://htmx.org/) updates the pages in place and [Bulma](https://bulma.io/) styles them.
+HTTP handlers use a cloneable `Database` handle; only the writer owns a writable connection.
 
 ```mermaid
 flowchart LR
@@ -27,7 +27,7 @@ flowchart LR
 1. `Database::increment()` creates a fresh `oneshot` channel for that request's reply.
 2. `try_send` puts the command and reply sender into the shared `mpsc` queue. The handler awaits its reply.
 3. The writer receives commands one at a time, runs each transaction, and commits it.
-4. The writer sends the committed value through `oneshot`. The handler returns JSON or redirects the browser.
+4. The writer sends the committed value through `oneshot`. The handler returns JSON, HTML for htmx to swap in, or a redirect for a plain form post.
 
 The shared `mpsc` queue lets many handlers feed one writer, serializing writes. Each `oneshot` returns one request's result to its caller.
 
@@ -90,12 +90,20 @@ Here, the bounded channel also provides explicit admission, one connection owner
 The lab leaves the saved counter and its replica unchanged. Normal counter writes retain their five-second busy timeout and have no deliberate delay.
 Only one lab experiment runs per server at a time; overlapping requests return HTTP 429.
 
+**The pages are HTML from the server, with or without JavaScript.**
+
+Each URL serves a whole document to a normal request and only its content to htmx, which swaps it into the page; see [htmx.rs](src/dashboard/htmx.rs).
+The tabs are plain links that htmx upgrades: it fetches the other page's content, updates the address bar, and Back and Forward keep working.
+The counter and the stock form post with `hx-post` and get their own section back, holding the saved value or the form's errors. The inventory rows refresh every five seconds.
+With JavaScript disabled, the same forms submit normally and redirect after the write, and the tabs load whole pages.
+The only script written for this site draws the contention lab's timing chart.
+
 Each [dashboard component](src/dashboard/components/) has its own folder with `mod.rs` and its JavaScript or CSS files.
 Shared page styles live in [styles.css](src/dashboard/styles.css).
-[build.rs](build.rs) discovers these assets recursively and minifies them during Cargo builds. The executable embeds and serves only the minified bundles through content-hashed URLs.
+[build.rs](build.rs) discovers these assets recursively and minifies them during Cargo builds, then embeds them beside htmx 4.0.0 and Bulma 1.0.2 as published ([vendor/](vendor/)).
+The executable serves only those embedded files, gzipped, through content-hashed URLs.
 Maud references those URLs; Axum serves the files with cache headers. Adding or editing a sibling asset triggers a rebuild without a central asset list.
-JavaScript updates the counter without reloading the page. With JavaScript disabled, the form submits normally and redirects after the write.
-The build requires no Node.js, npm, or separate frontend command.
+The build requires no Node.js, npm, CDN, or separate frontend command.
 
 ```sh
 just test       # Rust unit and integration tests
@@ -115,6 +123,7 @@ tests/
     helpers.rs
     health_check.rs
     counter.rs
+    inventory.rs
     page.rs
 ```
 
@@ -126,9 +135,10 @@ tests/
 | [tests/README.md](tests/README.md), [tests/api/](tests/api/) | API integration test conventions and HTTP cases |
 | [replication.rs](src/replication.rs) | Initial Litestream sync before HTTP starts |
 | [routes.rs](src/routes.rs) | HTTP endpoints and error mapping |
-| [pages.rs](src/dashboard/pages.rs), [layouts.rs](src/dashboard/layouts.rs) | Maud page composition and the shared HTML shell |
+| [pages.rs](src/dashboard/pages.rs), [layouts.rs](src/dashboard/layouts.rs) | Page handlers, Maud page composition, and the shared HTML shell |
+| [htmx.rs](src/dashboard/htmx.rs) | Whether a request gets a document or a fragment, and the headers either needs |
 | [components/](src/dashboard/components/), [styles.css](src/dashboard/styles.css) | Individual component folders with Rust and browser assets, plus shared page styles |
-| [build.rs](build.rs), [assets.rs](src/dashboard/assets.rs) | Discover, minify, embed, and serve CSS and JavaScript |
+| [build.rs](build.rs), [assets.rs](src/dashboard/assets.rs), [vendor/](vendor/) | Discover, minify, embed, and serve CSS and JavaScript, including htmx and Bulma |
 | [migrations/](migrations/) | Schema and initial inventory |
 
 See [operations](docs/operations.md) for configuration, Kubernetes, and durability limits;

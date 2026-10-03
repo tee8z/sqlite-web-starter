@@ -1,1 +1,2 @@
-output { display: block; margin: 8px 0 24px; font-size: 4rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+#counter-value { display: block; margin-bottom: 1rem; font-size: 4rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+#counter-status { margin-top: .75rem; }
